@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autoware Parking Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; color: #333; display: flex; flex-direction: column; align-items: center; margin: 0; }
+        .container { background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-top: 2rem; width: 90%; max-width: 600px; }
+        h1 { color: #1c1e21; text-align: center; }
+        .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 1rem; background-color: #e7f3ff; border-radius: 8px; margin-bottom: 1.5rem; }
+        .status-light { width: 12px; height: 12px; border-radius: 50%; background-color: #52c41a; }
+        #connection-status { font-weight: 500; }
+        .controls { display: flex; justify-content: center; margin-bottom: 1rem; }
+        .btn { background-color: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background-color 0.3s; }
+        .btn:hover { background-color: #0056b3; }
+        .parking-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; }
+        .spot { border: 2px solid; border-radius: 8px; padding: 1rem; text-align: center; font-size: 1.2rem; font-weight: bold; transition: all 0.3s; position: relative; }
+        .spot.available { border-color: #52c41a; color: #52c41a; background-color: #f6ffed; cursor: pointer; }
+        .spot.available:hover { background-color: #d9f7be; }
+        .spot.occupied { border-color: #ff4d4f; color: #ff4d4f; background-color: #fff1f0; }
+        .spot.reserved { border-color: #faad14; color: #faad14; background-color: #fffbe6; cursor: not-allowed; }
+        .spot.selected { background-color: #91d5ff !important; border-color: #1890ff !important; color: #1890ff !important; }
+        .free-btn { position: absolute; bottom: 8px; right: 8px; font-size: 10px; padding: 2px 6px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .action-bar { text-align: center; margin-top: 2rem; }
+        #navigate-btn { background-color: #28a745; display: none; }
+        .instruction-display { text-align: center; margin: 1.5rem 0; }
+        .instruction-display h3 { margin: 0; color: #666; font-size: 1rem; text-transform: uppercase; }
+        #instruction-text { font-size: 2.5rem; font-weight: bold; color: #007bff; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Autoware Parking Dashboard</h1>
+        <div class="status-bar"><span id="connection-status">Connected to Server</span><div id="status-light" class="status-light"></div></div>
+        <div class="controls"><button id="initial-pose-btn" class="btn">Set Vehicle Initial Pose</button></div>
+        <div class="instruction-display"><h3>Current Instruction</h3><p id="instruction-text">-</p></div>
+        <h2>Parking Spots</h2>
+        <div id="parking-grid" class="parking-grid"></div>
+        <div class="action-bar"><button id="navigate-btn" class="btn">Navigate to Selected Spot</button></div>
+    </div>
+
+    <script>
+        let selectedSpotId = null;
+
+        async function fetchStatus() {
+            const response = await fetch('/get_status');
+            const spots = await response.json();
+            updateGrid(spots);
+        }
+
+        function updateGrid(spots) {
+            const grid = document.getElementById('parking-grid');
+            grid.innerHTML = '';
+            spots.sort((a, b) => a.id - b.id).forEach(spot => {
+                const spotDiv = document.createElement('div');
+                spotDiv.className = `spot ${spot.status}`;
+                spotDiv.textContent = `Spot ${spot.id}`;
+                spotDiv.dataset.id = spot.id;
+                spotDiv.dataset.status = spot.status;
+                if (spot.id === selectedSpotId) { spotDiv.classList.add('selected'); }
+                
+                if (spot.status === 'occupied') {
+                    const freeBtn = document.createElement('button');
+                    freeBtn.textContent = 'Free Spot';
+                    freeBtn.className = 'free-btn';
+                    freeBtn.onclick = (e) => {
+                        e.stopPropagation(); // prevent spot selection
+                        freeSpot(spot.id);
+                    };
+                    spotDiv.appendChild(freeBtn);
+                }
+                grid.appendChild(spotDiv);
+            });
+        }
+        
+        async function fetchInstruction() {
+            const response = await fetch('/get_instruction');
+            const data = await response.json();
+            document.getElementById('instruction-text').textContent = data.instruction;
+        }
+
+        async function freeSpot(spotId) {
+            await fetch('/free_spot', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ spot_id: spotId })
+            });
+            fetchStatus(); // Refresh grid immediately
+        }
+
+        document.getElementById('initial-pose-btn').addEventListener('click', async () => {
+            const response = await fetch('/set_initial_pose', { method: 'POST' });
+            const result = await response.json();
+            alert(result.message);
+        });
+
+        document.getElementById('parking-grid').addEventListener('click', (event) => {
+            const spotDiv = event.target.closest('.spot');
+            if (spotDiv && spotDiv.dataset.status === 'available') {
+                document.querySelectorAll('.spot.selected').forEach(el => el.classList.remove('selected'));
+                spotDiv.classList.add('selected');
+                selectedSpotId = parseInt(spotDiv.dataset.id);
+                document.getElementById('navigate-btn').style.display = 'inline-block';
+            }
+        });
+
+        document.getElementById('navigate-btn').addEventListener('click', async () => {
+            if (selectedSpotId === null) return;
+            const navBtn = document.getElementById('navigate-btn');
+            navBtn.disabled = true;
+            navBtn.textContent = 'Navigating...';
+            document.getElementById('instruction-text').textContent = '⏳ Calculating route...';
+
+            const response = await fetch('/navigate_to_spot', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ spot_id: selectedSpotId })
+            });
+            const result = await response.json();
+            alert(result.message);
+
+            if (result.success) {
+                selectedSpotId = null;
+                navBtn.style.display = 'none';
+            }
+            navBtn.disabled = false;
+            navBtn.textContent = 'Navigate to Selected Spot';
+            fetchStatus();
+        });
+
+        setInterval(() => { fetchStatus(); fetchInstruction(); }, 2000);
+        fetchStatus();
+        fetchInstruction();
+    </script>
+</body>
+</html>
