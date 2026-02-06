@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Klinikum Dortmund Parking</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; color: #333; display: flex; justify-content: center; align-items: center; margin: 0; min-height: 100vh; }
+        .app-container { background: #fff; padding: 2.5rem; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.1); width: 90%; max-width: 500px; text-align: center; }
+        h1 { color: #1c1e21; margin-top: 0; }
+        p { color: #606770; font-size: 1.1rem; }
+        .btn { background-color: #007bff; color: white; border: none; padding: 14px 28px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background-color 0.3s; width: 100%; margin-top: 1rem; }
+        .btn:hover { background-color: #0056b3; }
+        .btn-secondary { background-color: #6c757d; }
+        .btn-link { background: none; border: none; color: #007bff; text-decoration: underline; cursor: pointer; padding: 0; margin-top: 1.5rem; font-size: 1rem; }
+        input[type="text"] { width: calc(100% - 22px); padding: 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 16px; margin-top: 1rem; }
+        .view { display: none; }
+        .view.active { display: block; }
+        .parking-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+        
+        /* SPOT STYLES */
+        .spot { border: 2px solid; border-radius: 8px; padding: 1rem; font-size: 1.2rem; font-weight: bold; transition: all 0.3s; }
+        
+        /* Available Status Colors */
+        .spot.available { border-color: #52c41a; color: #52c41a; background-color: #f6ffed; cursor: pointer; } /* Default General */
+        
+        .spot.available.disabled-type { border-color: #1890ff; color: #0050b3; background-color: #e6f7ff; } /* Blue for Disabled */
+        .spot.available.women-type { border-color: #eb2f96; color: #9e1068; background-color: #fff0f6; } /* Pink for Women */
+        
+        .spot.available:hover { opacity: 0.8; }
+        
+        /* Occupied/Reserved/Selected */
+        .spot.occupied { border-color: #ff4d4f; color: #ff4d4f; background-color: #fff1f0; cursor: not-allowed; }
+        .spot.reserved { border-color: #faad14; color: #faad14; background-color: #fffbe6; cursor: not-allowed; }
+        .spot.selected { background-color: #91d5ff !important; border-color: #1890ff !important; color: #1890ff !important; }
+        
+        #instruction-text { font-size: 1.5rem; font-weight: bold; color: #007bff; margin-top: 1rem; min-height: 80px; line-height: 1.4; }
+        .dev-tools { border-top: 1px solid #eee; margin-top: 2rem; padding-top: 1rem; }
+        
+        /* Legend Styles */
+        .legend { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 10px; font-size: 0.8rem; gap: 10px; }
+        .legend-item { display: flex; align-items: center; }
+        .color-box { width: 15px; height: 15px; margin-right: 5px; border-radius: 3px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div id="welcome-view" class="view active">
+            <h1>Welcome to the Parking Garage</h1>
+            <p>Please enter your last name to find your reservation.</p>
+            <input type="text" id="last-name-input" placeholder="e.g., name1">
+            <button id="find-reservation-btn" class="btn">Find My Reservation</button>
+            <button id="no-reservation-btn" class="btn btn-secondary">I have no reservation</button>
+            
+            <div class="dev-tools">
+                <button class="btn-link" onclick="resetPose()">Reset Vehicle Pose</button>
+                <br>
+                <button class="btn-link" onclick="getCoordinates()" style="margin-top: 10px; color: #666;">Get Current Coordinates</button>
+            </div>
+        </div>
+
+        <div id="navigation-view" class="view">
+            <h1 id="welcome-message"></h1>
+            <p>Please follow the instructions below to reach your spot.</p>
+            <p id="instruction-text">Calculating route...</p>
+            <button class="btn-link" onclick="showView('welcome-view', true)">Go Back to Main Menu</button>
+        </div>
+
+        <div id="selection-view" class="view">
+            <h1>Select an Available Spot</h1>
+            
+            <div class="legend">
+                <div class="legend-item"><div class="color-box" style="background: #e6f7ff; border-color: #1890ff;"></div>Disabled</div>
+                <div class="legend-item"><div class="color-box" style="background: #fff0f6; border-color: #eb2f96;"></div>Women</div>
+                <div class="legend-item"><div class="color-box" style="background: #f6ffed; border-color: #52c41a;"></div>General</div>
+                <div class="legend-item">⚡ = EV Charger</div>
+            </div>
+
+            <div id="parking-grid" class="parking-grid"></div>
+            <button id="navigate-selected-btn" class="btn" style="display: none;">Navigate to Selected Spot</button>
+            <button class="btn-link" onclick="showView('welcome-view')">Go Back</button>
+        </div>
+    </div>
+
+    <script>
+        let selectedSpotId = null;
+
+        function showView(viewId, cancelNav = false) {
+            document.querySelectorAll('.view').forEach(v => {
+                v.classList.remove('active');
+                v.style.display = 'none';
+            });
+            const targetView = document.getElementById(viewId);
+            targetView.classList.add('active');
+            targetView.style.display = 'block';
+            
+            if (viewId === 'welcome-view') {
+                selectedSpotId = null;
+                document.getElementById('last-name-input').value = '';
+                if (cancelNav) {
+                    fetch('/cancel_navigation', { method: 'POST' });
+                }
+            }
+        }
+        
+        async function resetPose() {
+            await fetch('/set_initial_pose', { method: 'POST' });
+            alert("Vehicle pose has been reset and goal has been cleared.");
+        }
+
+        async function getCoordinates() {
+            try {
+                const response = await fetch('/get_coordinates');
+                const data = await response.json();
+                if (data.x !== undefined) {
+                    alert(`Current Pose:\nX: ${data.x}\nY: ${data.y}\nYaw: ${data.yaw}`);
+                } else {
+                    alert("Could not fetch coordinates.");
+                }
+            } catch (e) {
+                alert("Error fetching coordinates. Ensure the backend is running.");
+            }
+        }
+
+        async function checkReservation() {
+            const lastName = document.getElementById('last-name-input').value.trim();
+            if (!lastName) { alert("Please enter a last name."); return; }
+
+            const response = await fetch('/check_reservation', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ last_name: lastName })
+            });
+            const result = await response.json();
+
+            if (result.found) {
+                document.getElementById('welcome-message').textContent = `Welcome, ${result.user.full_name}!`;
+                showView('navigation-view');
+                startNavigation(result.user.spot_id);
+            } else {
+                showView('selection-view');
+                fetchStatus();
+            }
+        }
+
+        async function fetchStatus() {
+            const response = await fetch('/get_status');
+            const spots = await response.json();
+            updateGrid(spots);
+        }
+
+        async function fetchInstruction() {
+            const response = await fetch('/get_instruction');
+            const data = await response.json();
+            document.getElementById('instruction-text').textContent = data.instruction;
+        }
+
+        async function startNavigation(spotId) {
+            await fetch('/set_initial_pose', { method: 'POST' });
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await fetch('/navigate_to_spot', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ spot_id: spotId })
+            });
+        }
+
+        function updateGrid(spots) {
+            const grid = document.getElementById('parking-grid');
+            grid.innerHTML = '';
+            spots.sort((a, b) => a.id - b.id).forEach(spot => {
+                const spotDiv = document.createElement('div');
+                spotDiv.className = `spot ${spot.status}`;
+                
+                // Add specific visualization classes if available
+                if (spot.status === 'available') {
+                    if (spot.type === 'Disabled') spotDiv.classList.add('disabled-type');
+                    if (spot.type === 'Women') spotDiv.classList.add('women-type');
+                }
+
+                // Add EV icon logic
+                let label = `Spot ${spot.id}`;
+                if (spot.is_ev) {
+                    label += ' ⚡';
+                }
+                
+                spotDiv.textContent = label;
+                spotDiv.dataset.id = spot.id;
+                spotDiv.dataset.status = spot.status;
+                
+                if (spot.id === selectedSpotId) {
+                    spotDiv.classList.add('selected');
+                }
+                grid.appendChild(spotDiv);
+            });
+        }
+
+        document.getElementById('find-reservation-btn').addEventListener('click', checkReservation);
+        document.getElementById('last-name-input').addEventListener('keyup', e => e.key === 'Enter' && checkReservation());
+        document.getElementById('no-reservation-btn').addEventListener('click', () => {
+            showView('selection-view');
+            fetchStatus();
+        });
+
+        document.getElementById('parking-grid').addEventListener('click', (event) => {
+            const spotDiv = event.target.closest('.spot');
+            if (spotDiv && spotDiv.dataset.status === 'available') {
+                document.querySelectorAll('.spot.selected').forEach(el => el.classList.remove('selected'));
+                spotDiv.classList.add('selected');
+                selectedSpotId = parseInt(spotDiv.dataset.id);
+                document.getElementById('navigate-selected-btn').style.display = 'block';
+            }
+        });
+
+        document.getElementById('navigate-selected-btn').addEventListener('click', () => {
+            if (selectedSpotId !== null) {
+                document.getElementById('welcome-message').textContent = `Proceeding to Spot ${selectedSpotId}`;
+                showView('navigation-view');
+                startNavigation(selectedSpotId);
+            }
+        });
+        
+        setInterval(() => {
+            if (document.getElementById('navigation-view').classList.contains('active')) {
+                fetchInstruction();
+            }
+            if (document.getElementById('selection-view').classList.contains('active')) {
+                fetchStatus();
+            }
+        }, 1500);
+    </script>
+</body>
+</html>

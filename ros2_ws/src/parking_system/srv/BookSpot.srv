@@ -1,0 +1,4 @@
+uint8 spot_id
+---
+bool success
+string message
