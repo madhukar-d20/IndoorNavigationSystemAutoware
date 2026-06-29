@@ -271,7 +271,7 @@ class ParkingManagementNode(Node):
             
             # Women's Spots (3-6)
             3: {"id": 3, "floor": "P1", "area": "Right", "side": "Left-Hand Side", "type": "Women", "is_ev": True,  "x": 69.5355, "y": 52.5298, "yaw": -2.9054, "status": "available"},
-            4: {"id": 4, "floor": "P1", "area": "Left", "side": "Left-Hand Side", "type": "Women", "is_ev": True,  "x": 76.8895, "y": 52.6976, "yaw": -0.1771, "status": "available"},
+            4: {"id": 4, "floor": "P1", "area": "Left", "side": "Left-Hand Side", "type": "Women", "is_ev": True,  "x": 76.7427, "y": 52.4000, "yaw": -0.2115, "status": "available"},
             5: {"id": 5, "floor": "P1", "area": "Right", "side": "Left-Hand Side", "type": "Women", "is_ev": False, "x": 69.0713, "y": 48.7766, "yaw": -2.9431, "status": "available"},
             6: {"id": 6, "floor": "P1", "area": "Left", "side": "Right-Hand Side", "type": "Women", "is_ev": False, "x": 76.7348, "y": 48.7503, "yaw": -0.1950, "status": "available"},
             
