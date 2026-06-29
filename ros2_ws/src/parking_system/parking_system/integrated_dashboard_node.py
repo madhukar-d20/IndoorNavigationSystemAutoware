@@ -6,214 +6,206 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from flask import Flask, render_template, jsonify, request
 import threading
 import os
+import math
+import time
 from ament_index_python.packages import get_package_share_directory
 
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from tier4_external_api_msgs.srv import Engage
 
-import math
-import time
-
-# --- Global variables & Constants ---
-ros_node = None
-current_instruction = "Welcome! Please enter your last name."
-GOAL_TOLERANCE = 2.0
-NEAR_SPOT_DISTANCE = 7.0
+GOAL_TOLERANCE = 1.0
+NEAR_SPOT_DISTANCE = 3.0
 
 # --- Flask Web Application ---
-web_dir = os.path.join(get_package_share_directory('parking_system'), 'web')
-app = Flask(__name__, template_folder=web_dir)
+try:
+    web_dir = os.path.join(get_package_share_directory('parking_system'), 'web')
+    app = Flask(__name__, template_folder=web_dir)
+except Exception:
+    # Fallback if package not found
+    app = Flask(__name__)
+
+ros_node = None
+current_instruction = "System Ready. Waiting for Navigation Command..."
 
 @app.route('/')
 def index():
-    return render_template('dashboard.html')
-
-@app.route('/get_status')
-def get_status():
-    if ros_node:
-        return jsonify(list(ros_node.parking_spots.values()))
-    return jsonify([])
+    try:
+        return render_template('dashboard.html')
+    except:
+        return "Dashboard Active. Use POST /navigate to move robot"
 
 @app.route('/get_instruction')
 def get_instruction():
     global current_instruction
     return jsonify({"instruction": current_instruction})
 
-@app.route('/check_reservation', methods=['POST'])
-def check_reservation():
+@app.route('/navigate', methods=['POST'])
+def navigate_to_coordinates():
     data = request.get_json()
-    last_name = data.get('last_name', '').lower()
-    if ros_node:
-        user_info = ros_node.find_reservation(last_name)
-        if user_info:
-            return jsonify({"found": True, "user": user_info})
-    return jsonify({"found": False})
+    
+    #Extract coordinates with defaults
+    x = data.get('x')
+    y = data.get('y')
+    yaw = data.get('yaw', 0.0)
+    
+    if x is None or y is None:
+        return jsonify({"success": False, "message": "Missing x or y coordinates"}), 400
 
-@app.route('/navigate_to_spot', methods=['POST'])
-def navigate_to_spot():
-    data = request.get_json()
-    spot_id = data.get('spot_id')
     if ros_node:
-        ros_node.start_navigation(spot_id)
-        return jsonify({"success": True, "message": "Navigation initiated."})
-    return jsonify({"success": False, "message": "ROS node not available."})
+        #Trigger navigation in the ROS node
+        threading.Thread(target=ros_node.start_coord_navigation, args=(float(x), float(y), float(yaw))).start()
+        return jsonify({
+            "success": True, 
+            "message": f"Navigation started to X:{x}, Y:{y}, Yaw:{yaw}"
+        })
+    
+    return jsonify({"success": False, "message": "ROS Node not initialized"}), 500
 
-@app.route('/set_initial_pose', methods=['POST'])
-def set_initial_pose():
-    if ros_node:
-        ros_node.set_initial_pose()
-        return jsonify({"success": True, "message": "Initial pose command sent."})
-    return jsonify({"success": False, "message": "ROS node not available."})
-
-@app.route('/cancel_navigation', methods=['POST'])
+@app.route('/cancel', methods=['POST'])
 def cancel_navigation():
     if ros_node:
         ros_node.cancel_navigation()
-        return jsonify({"success": True})
-    return jsonify({"success": False})
+        return jsonify({"success": True, "message": "Navigation Cancelled"})
+    return jsonify({"success": False}), 500
 
 # --- ROS 2 Node ---
 class ParkingManagementNode(Node):
     def __init__(self):
         super().__init__('parking_management_node')
-        self.get_logger().info("Parking Management Node (with Web Dashboard) started.")
+        self.get_logger().info("Parking Management Node (HTTP Mode) started.")
         self.cbg = ReentrantCallbackGroup()
 
-        self.reservations = {
-            "name1": {"full_name": "user name1", "spot_id": 3},
-            "name2": {"full_name": "user name2", "spot_id": 5},
-            "name3": {"full_name": "user name3", "spot_id": 8},
-        }
-        self.parking_spots = {
-            # Disabled Spots (1 & 2)
-            1: {"id": 1, "floor": "P1", "area": "Right", "side": "Right-Hand Side", "type": "Disabled", "is_ev": True,  "x": 69.8124, "y": 56.2120, "yaw": -2.9004, "status": "available"},
-            2: {"id": 2, "floor": "P1", "area": "Left", "side": "Right-Hand Side", "type": "Disabled", "is_ev": False, "x": 76.5557, "y": 55.8214, "yaw": -0.1826, "status": "available"},
-            
-            # Women's Spots (3-6)
-            3: {"id": 3, "floor": "P1", "area": "Right", "side": "Left-Hand Side", "type": "Women", "is_ev": True,  "x": 69.5355, "y": 52.5298, "yaw": -2.9054, "status": "available"},
-            4: {"id": 4, "floor": "P1", "area": "Left", "side": "Left-Hand Side", "type": "Women", "is_ev": True,  "x": 76.8895, "y": 52.6976, "yaw": -0.1771, "status": "available"},
-            5: {"id": 5, "floor": "P1", "area": "Right", "side": "Left-Hand Side", "type": "Women", "is_ev": False, "x": 69.0713, "y": 48.7766, "yaw": -2.9431, "status": "available"},
-            6: {"id": 6, "floor": "P1", "area": "Left", "side": "Right-Hand Side", "type": "Women", "is_ev": False, "x": 76.7348, "y": 48.7503, "yaw": -0.1950, "status": "available"},
-            
-            # General Spots (7-10)
-            7: {"id": 7, "floor": "P1", "area": "Right", "side": "Right-Hand Side", "type": "General", "is_ev": False, "x": 69.6403, "y": 45.1934, "yaw": -2.8840, "status": "available"},
-            8: {"id": 8, "floor": "P1", "area": "Left", "side": "Left-Hand Side", "type": "General", "is_ev": False, "x": 76.8160, "y": 45.0976, "yaw": -0.1679, "status": "available"},
-            9: {"id": 9, "floor": "P1", "area": "Right", "side": "Left-Hand Side", "type": "General", "is_ev": False, "x": 69.4512, "y": 41.3414, "yaw": -2.9248, "status": "available"},
-            10:{"id": 10,"floor": "P1", "area": "Left", "side": "Left-Hand Side", "type": "General", "is_ev": False, "x": 76.8137, "y": 41.1137, "yaw": -0.1858, "status": "available"},
-        }
-        for user in self.reservations.values():
-            if user['spot_id'] in self.parking_spots:
-                self.parking_spots[user['spot_id']]['status'] = 'reserved'
-
-        self.navigating_to_spot_id = None
+        # Navigation State
+        self.target_coordinates = None  # Stores {'x': float, 'y': float}
         self.robot_current_pose = None
         self.navigation_phase = None
 
+        # ROS Communications
         self.initial_pose_publisher = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10, callback_group=self.cbg)
         self.goal_pose_publisher = self.create_publisher(PoseStamped, '/planning/mission_planning/goal', 10, callback_group=self.cbg)
         self.engage_client = self.create_client(Engage, '/api/autoware/set/engage', callback_group=self.cbg)
         self.odom_subscriber = self.create_subscription(Odometry, '/localization/kinematic_state', self.odom_callback, 10, callback_group=self.cbg)
-        self.get_logger().info("Node setup complete.")
-
-    def find_reservation(self, last_name):
-        return self.reservations.get(last_name)
 
     def odom_callback(self, msg: Odometry):
         global current_instruction
         self.robot_current_pose = msg.pose.pose
 
-        if self.navigating_to_spot_id is None or self.navigation_phase is None:
+        if self.target_coordinates is None or self.navigation_phase is None:
             return
 
-        spot_data = self.parking_spots[self.navigating_to_spot_id]
-        dx = spot_data['x'] - self.robot_current_pose.position.x
-        dy = spot_data['y'] - self.robot_current_pose.position.y
+        # Calculate Euclidean distance to target
+        dx = self.target_coordinates['x'] - self.robot_current_pose.position.x
+        dy = self.target_coordinates['y'] - self.robot_current_pose.position.y
         dist = math.hypot(dx, dy)
 
         if self.navigation_phase == 'DRIVING' and dist < NEAR_SPOT_DISTANCE:
             self.navigation_phase = 'APPROACHING'
-            #current_instruction = f"Your spot is approaching. Park on the {spot_data['side']} with ID {spot_data['id']}."
-            current_instruction = f"Your spot is approaching. Park on the {spot_data['area']} with ID {spot_data['id']}."
+            current_instruction = "Approaching Target Location..."
+            self.get_logger().info(current_instruction)
+        
         elif self.navigation_phase == 'APPROACHING' and dist < GOAL_TOLERANCE:
             self.navigation_phase = 'ARRIVED'
-            self.parking_spots[self.navigating_to_spot_id]['status'] = 'occupied'
-            current_instruction = "Parked Successfully!"
-            self.navigating_to_spot_id = None
+            current_instruction = "Vehicle Arrived Successfully!"
+            self.get_logger().info(current_instruction)
+            self.target_coordinates = None # Clear target
             self.navigation_phase = None
 
     def set_initial_pose(self):
-        global current_instruction
         pwc = PoseWithCovarianceStamped()
         pwc.header.frame_id = 'map'
         pwc.header.stamp = self.get_clock().now().to_msg()
-        pwc.pose.pose.position.x = 72.8894
-        pwc.pose.pose.position.y = 66.3720
-        yaw_rad = math.radians(-89.18)
-        qz = math.sin(yaw_rad / 2.0); qw = math.cos(yaw_rad / 2.0)
-        pwc.pose.pose.orientation.z = qz; pwc.pose.pose.orientation.w = qw
-        self.initial_pose_publisher.publish(pwc)
         
+        # New initial pose
+        pwc.pose.pose.position.x = 80.9224
+        pwc.pose.pose.position.y = 71.2413
+        
+        # Calculate Quaternion for Initial Yaw (180.00 degrees)
+        yaw_rad = math.radians(180.00) 
+        qz = math.sin(yaw_rad / 2.0)
+        qw = math.cos(yaw_rad / 2.0)
+        pwc.pose.pose.orientation.z = qz
+        pwc.pose.pose.orientation.w = qw
+        
+        self.initial_pose_publisher.publish(pwc)
+        self.get_logger().info("Initial Pose Reset.")
+
+    def cancel_navigation(self):
+        self.target_coordinates = None
+        self.navigation_phase = None
+        # Send empty goal to stop planning
         empty_goal = PoseStamped()
         empty_goal.header.stamp = self.get_clock().now().to_msg()
         empty_goal.header.frame_id = 'map'
         self.goal_pose_publisher.publish(empty_goal)
-        current_instruction = "Vehicle position has been reset."
-        self.get_logger().info("Initial pose set and goal cleared.")
-
-    def start_navigation(self, spot_id):
+        self.get_logger().info("Navigation Cancelled.")
+    
+    def start_coord_navigation(self, x, y, yaw):
         global current_instruction
-        if self.navigating_to_spot_id is not None: return
         
+        # Reset Pose
         self.set_initial_pose()
-        time.sleep(1.0) # Give a moment for the pose to settle
-
+        time.sleep(2.0) # Wait for localization to settle
+    
+        # Update State
+        self.target_coordinates = {'x': x, 'y': y, 'yaw':yaw}
         self.navigation_phase = 'DRIVING'
-        spot_data = self.parking_spots[spot_id]
-        #current_instruction = f"Proceed to {spot_data['floor']}. Your spot is in the {spot_data['area']} Area, on the {spot_data['side']}."
-        current_instruction = f"Proceed to {spot_data['floor']}. Your spot is on the {spot_data['area']}side."
-        self.get_logger().info(f"Starting navigation to spot {spot_id}.")
-        
-        self.navigating_to_spot_id = spot_id
-        if self.parking_spots[spot_id]['status'] == 'available':
-            self.parking_spots[spot_id]['status'] = 'reserved'
-        
-        nav_thread = threading.Thread(target=self.navigate_to_spot, args=(spot_id,))
-        nav_thread.start()
+        current_instruction = f"Navigating to X:{x:.2f}, Y:{y:.2f}, Yaw:{yaw:.2f}"
+        self.get_logger().info(current_instruction)
 
-    def cancel_navigation(self):
-        self.get_logger().info("Navigation cancelled by user.")
-        self.navigating_to_spot_id = None
-        self.navigation_phase = None
-        self.set_initial_pose()
-
-    def navigate_to_spot(self, spot_id):
-        spot_data = self.parking_spots[spot_id]
+        # Publish Goal Pose
         goal_msg = PoseStamped()
         goal_msg.header.stamp = self.get_clock().now().to_msg()
         goal_msg.header.frame_id = "map"
-        goal_msg.pose.position.x = float(spot_data['x'])
-        goal_msg.pose.position.y = float(spot_data['y'])
-        qz = math.sin(spot_data["yaw"] / 2.0); qw = math.cos(spot_data["yaw"] / 2.0)
-        goal_msg.pose.orientation.z = qz; goal_msg.pose.orientation.w = qw
-        self.goal_pose_publisher.publish(goal_msg)
-        time.sleep(2.0)
+        goal_msg.pose.position.x = x
+        goal_msg.pose.position.y = y
         
-        request = Engage.Request()
-        request.engage = True
-        self.engage_client.call_async(request)
+        # Convert Target Yaw (radians) to Quaternion
+        qz = math.sin(yaw / 2.0)
+        qw = math.cos(yaw / 2.0)
+        goal_msg.pose.orientation.z = qz
+        goal_msg.pose.orientation.w = qw
+        
+        self.get_logger().info(f"GOAL TO AUTOWARE => X: {x}, Y: {y}, Yaw(rad): {yaw}, Qz: {qz:.6f}, Qw: {qw:.6f}")
+        
+        # Publish goal TWICE with a small delay
+        self.goal_pose_publisher.publish(goal_msg)
+        time.sleep(0.5)
+        goal_msg.header.stamp = self.get_clock().now().to_msg()
+        self.goal_pose_publisher.publish(goal_msg)
+        time.sleep(1.0)
+        
+        # Engage Autoware
+        if self.engage_client.wait_for_service(timeout_sec=2.0):
+            request = Engage.Request()
+            request.engage = True
+            self.engage_client.call_async(request)
+            self.get_logger().info("Vehicle Engaged.")
+        else:
+            self.get_logger().error("Engage service not available!")
 
 def main(args=None):
     rclpy.init(args=args)
     global ros_node
     ros_node = ParkingManagementNode()
+
+    print("Registered Routes:")
+    for rule in app.url_map.iter_rules():
+        print(f"{rule} -> {rule.methods}")
+
+    # Create Executor to handle ROS callbacks in background
     executor = MultiThreadedExecutor()
     executor.add_node(ros_node)
+    
+    # Run ROS spin in a separate thread
     executor_thread = threading.Thread(target=executor.spin, daemon=True)
     executor_thread.start()
+   
+    # Run Flask App in the main thread 
+    print("Starting Flask Server on port 8081...")
+    app.run(host='0.0.0.0', port=8081, use_reloader=False)
     
-    app.run(host='0.0.0.0', port=8080, use_reloader=False)
-    
+    # Cleanup
     rclpy.shutdown()
     executor_thread.join()
 
