@@ -12,15 +12,6 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        
-        # Correctly install all files
-        (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*.launch.py'))),
-        (os.path.join('share', package_name, 'worlds'), glob(os.path.join('worlds', '*.world'))),
-        (os.path.join('share', package_name, 'web'), glob(os.path.join('web', '*'))),
-        
-        # Correctly install the model and its contents
-        (os.path.join('share', package_name, 'models/indoor_garage'), glob(os.path.join('models/indoor_garage', '*'))),
-        (os.path.join('share', package_name, 'models/indoor_garage/meshes'), glob(os.path.join('models/indoor_garage/meshes', '*'))),
     ],
     install_requires=['setuptools', 'flask'],
     zip_safe=True,
@@ -32,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'integrated_dashboard_node = parking_system.integrated_dashboard_node:main',
+            'websocket_bridge = parking_system.websocket_bridge:main',
         ],
     },
 )
