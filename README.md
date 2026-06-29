@@ -65,6 +65,9 @@ This project solves these challenges by deploying a decoupled architecture: leve
 IndoorNavigationSystemAutoware/
 │
 ├── autoware/
+│   ├── map/               # Map assets for FH Dortmund Sonnenstraße campus
+│   │                      # (Contains the .osm semantic vector map)
+│   │
 │   └── src/               # Autoware package customizations
 │                          # and indoor navigation configuration files
 │
