@@ -131,7 +131,7 @@ ros2 launch autoware_launch planning_simulator.launch.xml
 **2. Start the Cloud Backend & Digital Twin:**
 ```bash
 # Ensure FIWARE Orion is running via Docker, then start FastAPI
-
+To be updated...
 ```
 
 **3. Start the ROS 2 HMI Node & WebSocket Bridge:**
