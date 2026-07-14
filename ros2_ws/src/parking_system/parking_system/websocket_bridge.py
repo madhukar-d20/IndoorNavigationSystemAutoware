@@ -4,7 +4,7 @@ import asyncio
 import requests 
 
 async def listen_for_tasks():
-    #Cloud WebSocket URL
+    #Cloud WebSocket URL (Changes after every system restart)
     ws_url = "wss://firewire-hospital-therefore-acre.trycloudflare.com/ws/machine"
 
     #Local Navigation Endpoint
