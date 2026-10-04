@@ -13,7 +13,7 @@
 
 This repository contains the implementation of an **indoor vehicle navigation prototype** and **cloud-connected Digital Twin** for GNSS-denied environments such as underground car parks. The system is developed as part of a **Master Research Project Thesis** at Fachhochschule Dortmund (FH Dortmund), supervised by **Prof. Dr.-Ing. Björn Schäfer** (Smart Mobility).
 
-The core challenge: standard navigation systems rely on GPS/GNSS signals which are unavailable inside buildings. This project addresses that by building a full autonomous navigation stack using **static point cloud maps**, **semantic Lanelet2 routing**, and **cloud-to-robot digital twin integration** — all verified through a Software-in-the-Loop (SITL) architecture using the **Autoware Planning Simulator**. 
+The core challenge: standard navigation systems rely on GPS/GNSS signals which are unavailable inside buildings. This project addresses that by building a full autonomous navigation stack using **static point cloud maps**, **semantic Lanelet2 routing**, and **cloud-to-robot digital twin integration** — all verified through a Software-in-the-Loop (SIL) architecture using the **Autoware Planning Simulator**. 
 
 The system's geometry and routing logic are strictly modeled and tested over the structural baseline of the **FH Dortmund (Sonnenstraße campus) parking garage**.
 
@@ -33,7 +33,7 @@ This project solves these challenges by deploying a decoupled architecture: leve
 
 ## Key Features
 
-- **Software-in-the-Loop (SITL) Validation** utilizing the Autoware Planning Simulator for safe, reliable, and repeatable testing of autonomous routing logic.
+- **Software-in-the-Loop (SIL) Validation** utilizing the Autoware Planning Simulator for safe, reliable, and repeatable testing of autonomous routing logic.
 - **FIWARE NGSI-LD Context Broker** integration to serve as the authoritative Digital Twin, tracking real-time spot occupancy and infrastructure status.
 - **FastAPI Mission Control Server** featuring an automated, preference-aware spot selection algorithm (prioritizing EV and accessible spaces).
 - **Asynchronous WebSocket Bridge** that intercepts cloud-based booking payloads and pushes coordinates to the local ROS 2 stack with <500ms latency.
@@ -156,7 +156,7 @@ This project is actively under development as part of an ongoing Master's thesis
 - [x] Dual-Interface HMI implementation (Flask + Tkinter)
 - [x] Digital twin integration (FIWARE Orion Context Broker)
 - [x] Cloud-to-Robot WebSocket coordination pipeline
-- [x] Software-in-the-Loop (SITL) path planning validation
+- [x] Software-in-the-Loop (SIL) path planning validation
 - [ ] End-to-end system testing on physical robot platform (Future Work)
 - [ ] Thesis submission
 
