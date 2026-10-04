@@ -117,7 +117,7 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-### Running the System (SITL Pipeline)
+### Running the System (SIL Pipeline)
 
 **1. Launch Autoware Planning Simulator:**
 ```bash
